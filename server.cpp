@@ -114,6 +114,11 @@ int main(int argc, char **argv)
                     continue;
                 }
                 buffer[r_size] = '\0';
+                // Ignore a trailing newline or carriage return so commands typed with nc/telnet work too.
+                while (r_size > 0 && (buffer[r_size - 1] == '\n' || buffer[r_size - 1] == '\r'))
+                {
+                    buffer[--r_size] = '\0';
+                }
                 cout << "Control command from FD " << clientfd << ": " << buffer << endl;
                 if (strcmp(buffer, "create") == 0)
                 {
@@ -328,10 +333,11 @@ int main(int argc, char **argv)
             }
             while (true)
             {
-                auto now = chrono::system_clock::now();
                 auto recv_start = chrono::steady_clock::now();
                 ssize_t r_size = sslArgs.enabled ? SSL_read(ssl, buffer, BUFSIZE) : recv(ac, buffer, BUFSIZE, 0);
                 auto recv_end = chrono::steady_clock::now();
+                // Wall-clock time at which the message actually arrived.
+                auto recv_wall = chrono::system_clock::now();
                 if (r_size == 0)
                 {
                     break;
@@ -344,14 +350,20 @@ int main(int argc, char **argv)
 
                 string recv_mes(buffer, r_size);
                 auto recv_duration = chrono::duration_cast<chrono::microseconds>(recv_end - recv_start);
-                time_t recv_time = chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count();
+                time_t recv_time = chrono::duration_cast<chrono::seconds>(recv_wall.time_since_epoch()).count();
 
                 auto send_start = chrono::steady_clock::now();
                 ssize_t s_size = sslArgs.enabled ? SSL_write(ssl, buffer, r_size) : send(ac, buffer, r_size, 0);
                 auto send_end = chrono::steady_clock::now();
+                auto send_wall = chrono::system_clock::now();
+                if (s_size <= 0)
+                {
+                    perror("send() failed");
+                    break;
+                }
                 string send_mes(buffer, s_size);
                 auto send_duration = chrono::duration_cast<chrono::microseconds>(send_end - send_start);
-                time_t send_time = chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count();
+                time_t send_time = chrono::duration_cast<chrono::seconds>(send_wall.time_since_epoch()).count();
 
                 cout << "Message: ";
                 cout.write(buffer, r_size);
