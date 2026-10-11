@@ -215,41 +215,41 @@ int main(int argc, char **argv)
         {
             switch (rp->ai_family)
             {
-            case AF_INET:
-                sock4 = socket(AF_INET, SOCK_STREAM, 0);
-                if (sock4 < 0)
-                {
-                    perror("IPv4 socket() failed");
-                    exit(-1);
-                }
-                setsockopt(sock4, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-                if (bind(sock4, rp->ai_addr, rp->ai_addrlen) < 0)
-                {
-                    perror("IPv4 bind() failed");
-                    close(sock4);
-                    sock4 = -1;
-                    continue;
-                }
-                cout << "IPv4 bind successful" << endl;
-                break;
-            case AF_INET6:
-                sock6 = socket(AF_INET6, SOCK_STREAM, 0);
-                if (sock6 < 0)
-                {
-                    perror("IPv6 socket() failed");
-                    exit(-1);
-                }
-                setsockopt(sock6, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-                setsockopt(sock6, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
-                if (bind(sock6, rp->ai_addr, rp->ai_addrlen) < 0)
-                {
-                    perror("IPv6 bind() failed");
-                    close(sock6);
-                    sock6 = -1;
-                    continue;
-                }
-                cout << "IPv6 bind successful" << endl;
-                break;
+                case AF_INET:
+                    sock4 = socket(AF_INET, SOCK_STREAM, 0);
+                    if (sock4 < 0)
+                    {
+                        perror("IPv4 socket() failed");
+                        exit(-1);
+                    }
+                    setsockopt(sock4, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+                    if (bind(sock4, rp->ai_addr, rp->ai_addrlen) < 0)
+                    {
+                        perror("IPv4 bind() failed");
+                        close(sock4);
+                        sock4 = -1;
+                        continue;
+                    }
+                    cout << "IPv4 bind successful" << endl;
+                    break;
+                case AF_INET6:
+                    sock6 = socket(AF_INET6, SOCK_STREAM, 0);
+                    if (sock6 < 0)
+                    {
+                        perror("IPv6 socket() failed");
+                        exit(-1);
+                    }
+                    setsockopt(sock6, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+                    setsockopt(sock6, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
+                    if (bind(sock6, rp->ai_addr, rp->ai_addrlen) < 0)
+                    {
+                        perror("IPv6 bind() failed");
+                        close(sock6);
+                        sock6 = -1;
+                        continue;
+                    }
+                    cout << "IPv6 bind successful" << endl;
+                    break;
             };
         }
         freeaddrinfo(result);

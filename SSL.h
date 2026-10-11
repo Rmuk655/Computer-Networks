@@ -116,5 +116,4 @@ inline SSL *sslClientConnect(SSL_CTX *ctx, int sockfd)
     return ssl;
 }
 
-
 #endif

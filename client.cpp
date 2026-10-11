@@ -163,7 +163,9 @@ int main(int argc, char **argv)
             perror("control socket");
             return -1;
         }
-        struct sockaddr_in controlAddr{};
+        struct sockaddr_in controlAddr
+        {
+        };
         controlAddr.sin_family = AF_INET;
         controlAddr.sin_port = htons(12344);
         if (inet_pton(AF_INET, "127.0.0.1", &controlAddr.sin_addr) <= 0)
@@ -446,7 +448,9 @@ int main(int argc, char **argv)
             perror("control socket");
             return -1;
         }
-        struct sockaddr_in controlAddr{};
+        struct sockaddr_in controlAddr
+        {
+        };
         controlAddr.sin_family = AF_INET;
         controlAddr.sin_port = htons(GROUP_CONTROL_PORT);
         if (inet_pton(AF_INET, "127.0.0.1", &controlAddr.sin_addr) <= 0)

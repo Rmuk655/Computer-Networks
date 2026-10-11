@@ -1,7 +1,3 @@
-// sudo tcpdump -i any -nn -vv 'port 53', sudo: Run with root privileges, needed for packet capture, tcpdump: Command-line packet capture/analyzer
-// -i any: Capture packets from all network interfaces, -nn: Don't resolve IP addresses or port numbers into names, 
-// -vv: Very verbose output; show more packet details, 'port 53': Capture only packets involving port 53, i.e. DNS traffic
-
 # CS3530 — Computer Networks Assignment 1
 
 ## Networked Messaging System
@@ -232,3 +228,18 @@ The clients currently connect to the group-control server using the local IPv4 a
 **Krishnan R** — CS24BTECH11036
 
 **Praneeth Kodavati** — CS24BTECH11034# CS3530-Networked-Messaging-System
+
+## Debugging notes
+
+Capturing DNS traffic while testing hostname resolution:
+
+```bash
+sudo tcpdump -i any -nn -vv 'port 53'
+```
+
+- `sudo`: packet capture needs root privileges.
+- `tcpdump`: command-line packet capture and analysis tool.
+- `-i any`: capture packets from all network interfaces.
+- `-nn`: do not resolve IP addresses or port numbers into names.
+- `-vv`: very verbose output; show more packet details.
+- `'port 53'`: capture only packets involving port 53, i.e. DNS traffic.
