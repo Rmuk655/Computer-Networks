@@ -94,6 +94,15 @@ Compile the client using the following command::
 g++ -std=c++17 -Wall -Wextra -O2 client.cpp -o client -lssl -lcrypto -pthread
 ```
 
+### Install dependencies and create a TLS certificate
+
+```bash
+sudo apt install build-essential libssl-dev     # Debian / Ubuntu
+openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365 -subj "/CN=localhost"
+```
+
+The private key `server.key` is deliberately not committed, so generate a key and certificate pair before using TLS (this replaces the sample `server.crt`).
+
 ## Running the System
 
 ### 1. Start the group-control server
