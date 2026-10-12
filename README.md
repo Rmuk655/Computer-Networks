@@ -234,7 +234,7 @@ The clients currently connect to the group-control server using the local IPv4 a
 
 **Krishnan R** — CS24BTECH11036
 
-**Praneeth Kodavati** — CS24BTECH11034# CS3530-Networked-Messaging-System
+**Praneeth Kodavati** — CS24BTECH11034
 
 ## Debugging notes
 
