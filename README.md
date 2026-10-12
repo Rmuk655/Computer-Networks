@@ -1,6 +1,4 @@
-# CS3530 — Computer Networks Assignment 1
-
-## Networked Messaging System
+# Networked Messaging System
 
 A socket-based messaging system prototype implemented in C++ using TCP, UDP multicast, IPv4, IPv6, hostname resolution, SSL/TLS, timestamps, and group management.
 
