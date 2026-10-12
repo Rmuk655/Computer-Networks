@@ -1,252 +1,45 @@
-# Networked Messaging System
+# Computer Networks
 
-A socket-based messaging system prototype implemented in C++ using TCP, UDP multicast, IPv4, IPv6, hostname resolution, SSL/TLS, timestamps, and group management.
+Hands-on networking work in one place: a virtual routing lab built from Linux VMs and VyOS routers, and a
+socket-based group messaging system in C++. The larger load-balancing project lives in its own repository.
 
-## Overview
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-The system consists of a server and multiple clients. Communication is divided into two parts:
+| Part | What it is | Highlights |
+|---|---|---|
+| [`routing-lab/`](routing-lab) | Two Ubuntu hosts and two VyOS routers on Linux bridges under QEMU/KVM, with static routing for IPv4 and IPv6 | 3-hop path, dual-stack ping and traceroute, iperf throughput, router and host configs |
+| [`messaging-system/`](messaging-system) | Group messaging with a TCP control channel, UDP multicast data path, IPv4 and IPv6, hostname resolution and TLS | Select-based I/O multiplexing, per-group multicast addresses, timestamps and timing on the echo service |
+| [LoadBalancerLab](https://github.com/Rmuk655/network-load-balancer-lab) | Discrete-event load-balancer simulator with a real-process deployment path and a Prequal paper reproduction | Separate repository |
 
-* **TCP control part:** Handles group-management operations such as creating, joining, and leaving groups. A separate TCP service is also provided for direct client-server echo communication and SSL/TLS testing.
-* **UDP multicast data part:** Handles sending and receiving messages within multicasted groups.
+## Routing lab at a glance
 
-The system supports both IPv4 and IPv6 TCP + multicast. An IPv4 client and an IPv6 client can be part of the same logical group, but their multicast messages are sent through separate IPv4 and IPv6 multicast channels.
-
-## Features
-
-* TCP client-server communication
-* Message timestamps
-* Hostname resolution using `getaddrinfo()`
-* SSL/TLS-secured TCP communication
-* `select()`-based multiplexing of multiple sockets
-* IPv4 UDP multicast
-* IPv6 UDP multicast
-* Group creation, joining, and leaving
-* Dynamic multicast ports for groups
-
-## Architecture
-
-### Control Part
-
-The group-control server listens on the TCP port numbered `12344` (hardcoded).
-
-Clients can send the following commands:
-
-```text
-create
-join N
-leave N
+```mermaid
+flowchart LR
+    H1["H1 (Ubuntu)<br/>10.0.1.10<br/>10:0:1::10"] --- B1(["bri1<br/>10.0.1.0/24"])
+    B1 --- R1["R1 (VyOS)<br/>eth0 10.0.1.254<br/>eth1 10.0.2.1"]
+    R1 --- B2(["bri2<br/>10.0.2.0/24"])
+    B2 --- R2["R2 (VyOS)<br/>eth0 10.0.2.254<br/>eth1 10.0.3.1"]
+    R2 --- B3(["bri3<br/>10.0.3.0/24"])
+    B3 --- H2["H2 (Ubuntu)<br/>10.0.3.10<br/>10:0:3::10"]
 ```
 
-When a new group is created, the server returns:
+H1 reaches H2 across both routers in three hops over IPv4 and IPv6, with about 11.7 ms average round trip
+and 4.3 Gbit/s TCP throughput measured by iperf. Details and screenshots are in
+[`routing-lab/`](routing-lab).
 
-```text
-CREATED <groupNo> <ipv4Port> <ipv6Port>
-```
+## Messaging system at a glance
 
-For a join request, the response is:
-
-```text
-JOINED <groupNo> <ipv4Port> <ipv6Port>
-```
-
-A successful leave operation returns:
-
-```text
-LEFT
-```
-
-Each logical group is assigned separate IPv4 and IPv6 multicast ports. For example, group 1 uses ports 12346 (IPv4) and 12347 (IPv6). The server returns these ports to clients when a group is created or joined.
-
-## Directory Structure
-
-```text
-CS24BTECH11034_CS24BTECH11036/
-├── server.cpp
-├── client.cpp
-├── group.h
-├── SSL.h
-├── server.crt
-├── server.key
-├── README.md
-└── report.pdf
-
-```
-
-## Requirements
-
-* Linux environment (WSL/Linux)
-* C++17 compiler
-* OpenSSL development libraries
-
-## Compilation
-
-Compile the server using the following command:
+A server and several clients communicate over two planes: TCP carries group management (create, join, leave),
+and UDP multicast carries the group messages. A separate TCP echo service supports plain and TLS
+connections and reports receive and send timestamps and timings. See
+[`messaging-system/README.md`](messaging-system/README.md) for architecture, commands and build steps.
 
 ```bash
+cd messaging-system
 g++ -std=c++17 -Wall -Wextra -O2 server.cpp -o server -lssl -lcrypto -pthread
-```
-
-Compile the client using the following command::
-
-```bash
 g++ -std=c++17 -Wall -Wextra -O2 client.cpp -o client -lssl -lcrypto -pthread
 ```
 
-### Install dependencies and create a TLS certificate
+## License
 
-```bash
-sudo apt install build-essential libssl-dev     # Debian / Ubuntu
-openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365 -subj "/CN=localhost"
-```
-
-The private key `server.key` is deliberately not committed, so generate a key and certificate pair before using TLS (this replaces the sample `server.crt`).
-
-## Running the System
-
-### 1. Start the group-control server
-
-```bash
-./server 12344
-```
-
-The server then listens on port `12344` for group-management requests.
-
-### 2. Start an IPv4 client
-
-```bash
-./client localhost 12346
-```
-
-### 3. Start an IPv6 client
-
-```bash
-./client localhost 12347
-```
-
-Multiple clients can be started at the same time to test multicast communication.
-
-## Client Commands
-
-### Create a group
-
-```text
-create
-```
-
-The server creates a new logical group and returns its multicast information.
-
-### Join a group
-
-```text
-join N
-```
-
-Here, `N` is the group number.
-
-For example:
-
-```text
-join 1
-```
-
-### Leave a group
-
-```text
-leave N
-```
-
-For example:
-
-```text
-leave 1
-```
-
-### Send a message
-
-Once a client has joined a group, entering any text sends that text message to all clients that have joined the same multicast group using the same protocol.
-
-### Quit
-
-```text
-quit
-```
-
-## IPv6 Multicast
-
-IPv6 clients use:
-
-```text
-ff02::1234
-```
-
-## SSL/TLS
-
-SSL/TLS support is implemented using the OpenSSL library.
-SSL/TLS can be enabled on the TCP echo service on port 12345 using the `--ssl` option.
-
-```bash
-./server 12345 --ssl
-./client localhost 12345 --ssl
-```
-
-## Hostname Resolution
-
-The client uses `getaddrinfo()`.
-
-## Testing
-
-We tested the system for the following cases:
-
-* IPv4 multicast communication
-* IPv6 multicast communication
-* Communication between multiple clients
-* SSL/TLS communication
-* Group creation
-* Joining and leaving groups
-* IPv4 and IPv6 clients belonging to the same logical group
-
-## Limitations
-
-### Hardcoded IPv6 Interface
-
-The IPv6 multicast implementation hardcodes the network interface used as:
-
-```text
-eth0
-```
-
-The interface index is obtained using:
-
-```cpp
-if_nametoindex("eth0")
-```
-
-Due to this, IPv6 multicast needs to be modified on systems with different network interface names, like `wlan0`, `enp0s3`, etc. You can find this using the bash command 
-```bash 
-ip a  
-```
-
-### Local Control Connection
-
-The clients currently connect to the group-control server using the local IPv4 address 127.0.0.1. Therefore, the current implementation is intended to run the clients and control server on the same machine.
-
-## Authors
-
-**Krishnan R** — CS24BTECH11036
-
-**Praneeth Kodavati** — CS24BTECH11034
-
-## Debugging notes
-
-Capturing DNS traffic while testing hostname resolution:
-
-```bash
-sudo tcpdump -i any -nn -vv 'port 53'
-```
-
-- `sudo`: packet capture needs root privileges.
-- `tcpdump`: command-line packet capture and analysis tool.
-- `-i any`: capture packets from all network interfaces.
-- `-nn`: do not resolve IP addresses or port numbers into names.
-- `-vv`: very verbose output; show more packet details.
-- `'port 53'`: capture only packets involving port 53, i.e. DNS traffic.
+MIT, see [LICENSE](LICENSE).
