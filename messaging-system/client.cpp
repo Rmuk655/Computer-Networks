@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <net/if.h>
+#include <csignal>
 
 #include "group.h"
 #include "SSL.h"
@@ -20,6 +21,24 @@ using namespace std;
 vector<Group> groups;
 vector<IPv6Group> groups6;
 
+// stoi() throws on non-numeric input, which would abort the client; accept only a plain number.
+// Control commands are newline-terminated lines, so the server can tell where each one ends.
+static ssize_t sendCommand(int fd, const char *command)
+{
+    string line = string(command) + "\n";
+    return send(fd, line.data(), line.size(), 0);
+}
+
+static bool parseGroupNo(const char *text, int &groupNo)
+{
+    char *end = nullptr;
+    long value = strtol(text, &end, 10);
+    if (end == text || *end != '\0' || value < 1 || value > 1000000)
+        return false;
+    groupNo = static_cast<int>(value);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -27,6 +46,8 @@ int main(int argc, char **argv)
         cerr << "Invalid arguments. Usage: " << argv[0] << " <hostname> <port>" << endl;
         exit(-1);
     }
+    // A server that goes away mid-write must not kill the client: send() then fails with EPIPE instead.
+    signal(SIGPIPE, SIG_IGN);
     // argv[1] is usually localhost
     const char *hostName = argv[1], *serPort = argv[2];
     int port = atoi(argv[2]);
@@ -83,7 +104,7 @@ int main(int argc, char **argv)
                 close(sockfd);
                 return 1;
             }
-            ssl = sslClientConnect(ctx, sockfd);
+            ssl = sslClientConnect(ctx, sockfd, hostName);
             if (!ssl)
             {
                 SSL_CTX_free(ctx);
@@ -102,6 +123,10 @@ int main(int argc, char **argv)
 
             if (strcmp(buffer, "quit") == 0)
                 break;
+
+            // An empty line sends nothing, so no echo would come back and recv() would block forever.
+            if (buffer[0] == '\0')
+                continue;
 
             if (sslArgs.enabled)
             {
@@ -228,7 +253,7 @@ int main(int argc, char **argv)
                     break;
                 if (strcmp(buffer, "create") == 0)
                 {
-                    ssize_t sent = send(controlSock, buffer, strlen(buffer), 0);
+                    ssize_t sent = sendCommand(controlSock, buffer);
                     if (sent < 0)
                     {
                         perror("send() to control server failed");
@@ -262,7 +287,12 @@ int main(int argc, char **argv)
                 }
                 else if (strncmp(buffer, "join ", 5) == 0)
                 {
-                    int groupNo = stoi(buffer + 5);
+                    int groupNo;
+                    if (!parseGroupNo(buffer + 5, groupNo))
+                    {
+                        cout << "Invalid group number" << endl;
+                        continue;
+                    }
                     bool alreadyJoined = false;
                     for (auto &g : groups)
                     {
@@ -277,7 +307,7 @@ int main(int argc, char **argv)
                         cout << "Already joined group " << groupNo << endl;
                         continue;
                     }
-                    send(controlSock, buffer, strlen(buffer), 0);
+                    sendCommand(controlSock, buffer);
                     char response[BUFSIZE];
                     int r_size = recv(controlSock, response, BUFSIZE - 1, 0);
                     if (r_size <= 0)
@@ -358,7 +388,12 @@ int main(int argc, char **argv)
                 }
                 else if (strncmp(buffer, "leave ", 6) == 0)
                 {
-                    int groupNo = stoi(buffer + 6);
+                    int groupNo;
+                    if (!parseGroupNo(buffer + 6, groupNo))
+                    {
+                        cout << "Invalid group number" << endl;
+                        continue;
+                    }
                     Group *group = nullptr;
                     for (auto &g : groups)
                     {
@@ -373,7 +408,7 @@ int main(int argc, char **argv)
                         cout << "Not joined to group " << groupNo << endl;
                         continue;
                     }
-                    send(controlSock, buffer, strlen(buffer), 0);
+                    sendCommand(controlSock, buffer);
                     char response[BUFSIZE];
                     int r_size = recv(controlSock, response, BUFSIZE - 1, 0);
                     if (r_size <= 0)
@@ -466,10 +501,12 @@ int main(int argc, char **argv)
             return -1;
         }
         cout << "Connected to group control server on port " << GROUP_CONTROL_PORT << endl;
-        unsigned int interfaceIndex = if_nametoindex("eth0");
+        // eth0 is the default; MULTICAST_IFACE selects another interface (names differ between hosts).
+        const char *ifaceName = getenv("MULTICAST_IFACE") ? getenv("MULTICAST_IFACE") : "eth0";
+        unsigned int interfaceIndex = if_nametoindex(ifaceName);
         if (interfaceIndex == 0)
         {
-            perror("if_nametoindex");
+            cerr << "Multicast interface '" << ifaceName << "' not found (set MULTICAST_IFACE)" << endl;
             close(controlSock);
             return -1;
         }
@@ -520,7 +557,7 @@ int main(int argc, char **argv)
                     break;
                 if (strcmp(buffer, "create") == 0)
                 {
-                    send(controlSock, buffer, strlen(buffer), 0);
+                    sendCommand(controlSock, buffer);
                     char response[BUFSIZE];
                     ssize_t r_size = recv(controlSock, response, BUFSIZE - 1, 0);
                     if (r_size <= 0)
@@ -550,7 +587,12 @@ int main(int argc, char **argv)
                 }
                 else if (strncmp(buffer, "join ", 5) == 0)
                 {
-                    int groupNo = stoi(buffer + 5);
+                    int groupNo;
+                    if (!parseGroupNo(buffer + 5, groupNo))
+                    {
+                        cout << "Invalid group number" << endl;
+                        continue;
+                    }
                     bool alreadyJoined = false;
                     for (auto &g : groups6)
                     {
@@ -568,7 +610,7 @@ int main(int argc, char **argv)
                     char request[BUFSIZE];
                     // Format the string "join <group number>" and store it in request.
                     snprintf(request, BUFSIZE, "join %d", groupNo);
-                    if (send(controlSock, request, strlen(request), 0) < 0)
+                    if (sendCommand(controlSock, request) < 0)
                     {
                         perror("send() to control server failed");
                         continue;
@@ -655,7 +697,12 @@ int main(int argc, char **argv)
                 }
                 else if (strncmp(buffer, "leave ", 6) == 0)
                 {
-                    int groupNo = stoi(buffer + 6);
+                    int groupNo;
+                    if (!parseGroupNo(buffer + 6, groupNo))
+                    {
+                        cout << "Invalid group number" << endl;
+                        continue;
+                    }
                     IPv6Group *group = nullptr;
                     for (auto &g : groups6)
                     {
@@ -673,7 +720,7 @@ int main(int argc, char **argv)
                     char request[BUFSIZE];
                     // Format the string "leave <group number>" and store it in request.
                     snprintf(request, BUFSIZE, "leave %d", groupNo);
-                    if (send(controlSock, request, strlen(request), 0) < 0)
+                    if (sendCommand(controlSock, request) < 0)
                     {
                         perror("send() to control server failed");
                         continue;

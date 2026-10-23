@@ -11,6 +11,10 @@
 #include <chrono>
 #include <iomanip>
 #include <net/if.h>
+#include <csignal>
+#include <map>
+#include <string>
+#include <sys/time.h>
 
 #include "group.h"
 #include "SSL.h"
@@ -23,6 +27,20 @@ using namespace std;
 vector<Group> groups;
 int nextGroupNo = 1;
 
+// The echo server serves one connection at a time, so a peer that connects and then stays silent must not
+// hold it forever: bound the wait for data (and for the TLS handshake) on an accepted socket.
+static void setReceiveTimeout(int fd, int seconds)
+{
+    struct timeval tv = {seconds, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+}
+
+static int secondsFromEnv(const char *name, int fallback)
+{
+    const char *value = getenv(name);
+    return (value && atoi(value) > 0) ? atoi(value) : fallback;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
@@ -30,6 +48,8 @@ int main(int argc, char **argv)
         cerr << "Invalid arguments. Usage: " << argv[0] << " <port>" << endl;
         exit(-1);
     }
+    // A peer that disconnects mid-reply must not kill the server: send() then fails with EPIPE instead.
+    signal(SIGPIPE, SIG_IGN);
     int port = atoi(argv[1]);
     char buffer[BUFSIZE];
     if (port == 12344)
@@ -61,6 +81,77 @@ int main(int argc, char **argv)
         }
         cout << "Group control server listening on port 12344" << endl;
         vector<int> clients;
+        map<int, string> pending;
+        auto handleControlCommand = [&](int clientfd, const string &line)
+        {
+            const char *buffer = line.c_str();
+            cout << "Control command from FD " << clientfd << ": " << buffer << endl;
+            if (strcmp(buffer, "create") == 0 && IPV6_GROUP_BASE_PORT + nextGroupNo * 2 > 65535)
+            {
+                const char *msg = "ERROR Too many groups";
+                send(clientfd, msg, strlen(msg), 0);
+            }
+            else if (strcmp(buffer, "create") == 0)
+            {
+                int groupNo = nextGroupNo;
+                int groupPort = IPV4_GROUP_BASE_PORT + groupNo * 2;
+                int ipv6Port = IPV6_GROUP_BASE_PORT + groupNo * 2;
+                Group g;
+                g.groupNo = groupNo;
+                g.port = groupPort;
+                g.socketFd = -1;
+                g.joined = false;
+                groups.push_back(g);
+                nextGroupNo++;
+                char response[BUFSIZE];
+                snprintf(response, BUFSIZE, "CREATED %d %d %d", groupNo, groupPort, ipv6Port);
+                send(clientfd, response, strlen(response), 0);
+            }
+            else if (strncmp(buffer, "join ", 5) == 0)
+            {
+                int groupNo;
+                if (sscanf(buffer, "join %d", &groupNo) != 1)
+                {
+                    const char *msg = "ERROR Invalid join command";
+                    send(clientfd, msg, strlen(msg), 0);
+                    return;
+                }
+                if (groupNo < 1 || groupNo >= nextGroupNo)
+                {
+                    const char *msg = "ERROR Group not created";
+                    send(clientfd, msg, strlen(msg), 0);
+                    return;
+                }
+                Group &g = groups[groupNo - 1];
+                int ipv6Port = IPV6_GROUP_BASE_PORT + groupNo * 2;
+                char response[BUFSIZE];
+                snprintf(response, BUFSIZE, "JOINED %d %d %d", g.groupNo, g.port, ipv6Port);
+                send(clientfd, response, strlen(response), 0);
+            }
+            else if (strncmp(buffer, "leave ", 6) == 0)
+            {
+                int groupNo;
+                if (sscanf(buffer, "leave %d", &groupNo) != 1)
+                {
+                    const char *msg = "ERROR Invalid leave command";
+                    send(clientfd, msg, strlen(msg), 0);
+                    return;
+                }
+                if (groupNo < 1 || groupNo >= nextGroupNo)
+                {
+                    const char *msg = "ERROR Group not created";
+                    send(clientfd, msg, strlen(msg), 0);
+                    return;
+                }
+                const char *msg = "LEFT";
+                send(clientfd, msg, strlen(msg), 0);
+            }
+            else
+            {
+                const char *msg = "ERROR Unknown command";
+                send(clientfd, msg, strlen(msg), 0);
+            }
+        };
         while (true)
         {
             fd_set readfds;
@@ -93,6 +184,13 @@ int main(int argc, char **argv)
                 }
                 else
                 {
+                    if (clientfd >= FD_SETSIZE)
+                    {
+                        // select() cannot watch descriptors this high; FD_SET would corrupt memory.
+                        cout << "Too many control clients; refusing FD = " << clientfd << endl;
+                        close(clientfd);
+                        continue;
+                    }
                     clients.push_back(clientfd);
                     cout << "Group control client connected. " << "FD = " << clientfd << endl;
                 }
@@ -110,79 +208,25 @@ int main(int argc, char **argv)
                 {
                     cout << "Group control client disconnected. " << "FD = " << clientfd << endl;
                     close(clientfd);
+                    pending.erase(clientfd);
                     it = clients.erase(it);
                     continue;
                 }
-                buffer[r_size] = '\0';
-                // Ignore a trailing newline or carriage return so commands typed with nc/telnet work too.
-                while (r_size > 0 && (buffer[r_size - 1] == '\n' || buffer[r_size - 1] == '\r'))
+                // TCP is a byte stream: a command may arrive in pieces or several may arrive together, so keep the
+                // unfinished tail per client and run each complete newline-terminated line.
+                string &pendingBytes = pending[clientfd];
+                pendingBytes.append(buffer, r_size);
+                if (pendingBytes.size() > BUFSIZE && pendingBytes.find('\n') == string::npos)
+                    pendingBytes.clear(); // a "line" this long is not a valid command
+                size_t newline;
+                while ((newline = pendingBytes.find('\n')) != string::npos)
                 {
-                    buffer[--r_size] = '\0';
-                }
-                cout << "Control command from FD " << clientfd << ": " << buffer << endl;
-                if (strcmp(buffer, "create") == 0)
-                {
-                    int groupNo = nextGroupNo;
-                    int groupPort = IPV4_GROUP_BASE_PORT + groupNo * 2;
-                    int ipv6Port = IPV6_GROUP_BASE_PORT + groupNo * 2;
-                    Group g;
-                    g.groupNo = groupNo;
-                    g.port = groupPort;
-                    g.socketFd = -1;
-                    g.joined = false;
-                    groups.push_back(g);
-                    nextGroupNo++;
-                    char response[BUFSIZE];
-                    snprintf(response, BUFSIZE, "CREATED %d %d %d", groupNo, groupPort, ipv6Port);
-                    send(clientfd, response, strlen(response), 0);
-                }
-                else if (strncmp(buffer, "join ", 5) == 0)
-                {
-                    int groupNo;
-                    if (sscanf(buffer, "join %d", &groupNo) != 1)
-                    {
-                        const char *msg = "ERROR Invalid join command";
-                        send(clientfd, msg, strlen(msg), 0);
-                        ++it;
-                        continue;
-                    }
-                    if (groupNo < 1 || groupNo >= nextGroupNo)
-                    {
-                        const char *msg = "ERROR Group not created";
-                        send(clientfd, msg, strlen(msg), 0);
-                        ++it;
-                        continue;
-                    }
-                    Group &g = groups[groupNo - 1];
-                    int ipv6Port = IPV6_GROUP_BASE_PORT + groupNo * 2;
-                    char response[BUFSIZE];
-                    snprintf(response, BUFSIZE, "JOINED %d %d %d", g.groupNo, g.port, ipv6Port);
-                    send(clientfd, response, strlen(response), 0);
-                }
-                else if (strncmp(buffer, "leave ", 6) == 0)
-                {
-                    int groupNo;
-                    if (sscanf(buffer, "leave %d", &groupNo) != 1)
-                    {
-                        const char *msg = "ERROR Invalid leave command";
-                        send(clientfd, msg, strlen(msg), 0);
-                        ++it;
-                        continue;
-                    }
-                    if (groupNo < 1 || groupNo >= nextGroupNo)
-                    {
-                        const char *msg = "ERROR Group not created";
-                        send(clientfd, msg, strlen(msg), 0);
-                        ++it;
-                        continue;
-                    }
-                    const char *msg = "LEFT";
-                    send(clientfd, msg, strlen(msg), 0);
-                }
-                else
-                {
-                    const char *msg = "ERROR Unknown command";
-                    send(clientfd, msg, strlen(msg), 0);
+                    string line = pendingBytes.substr(0, newline);
+                    pendingBytes.erase(0, newline + 1);
+                    if (!line.empty() && line.back() == '\r')
+                        line.pop_back();
+                    if (!line.empty())
+                        handleControlCommand(clientfd, line);
                 }
                 ++it;
             }
@@ -322,6 +366,7 @@ int main(int argc, char **argv)
                 continue;
             }
             SSL *ssl = nullptr;
+            setReceiveTimeout(ac, secondsFromEnv("ECHO_HANDSHAKE_TIMEOUT_SECS", 10));
             if (sslArgs.enabled)
             {
                 ssl = sslServerAccept(ctx, ac);
@@ -331,6 +376,7 @@ int main(int argc, char **argv)
                     continue;
                 }
             }
+            setReceiveTimeout(ac, secondsFromEnv("ECHO_IDLE_TIMEOUT_SECS", 60));
             while (true)
             {
                 auto recv_start = chrono::steady_clock::now();

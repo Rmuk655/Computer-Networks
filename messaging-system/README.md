@@ -101,6 +101,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -da
 
 The private key `server.key` is deliberately not committed, so generate a key and certificate pair before using TLS (this replaces the sample `server.crt`).
 
+The TLS client checks that the certificate is valid for the name it connects to. Connect with the name in the certificate (`CN=localhost` above works for `./client localhost 12345 --ssl`). To connect by IP address (for example `127.0.0.1`), add an IP address to the certificate, for example by adding `-addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1"` to the command above.
+
+The group control channel (port 12344) is line based: the client ends every command with a newline, and the server runs each complete line, so commands can arrive split or merged by TCP.
+
 ## Running the System
 
 ### 1. Start the group-control server

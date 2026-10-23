@@ -3,8 +3,10 @@
 
 #include <iostream>
 #include <cstring>
+#include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/x509v3.h>
 
 using namespace std;
 
@@ -97,7 +99,9 @@ inline SSL_CTX *SSLcreateclient(const SSLArgs &args)
     return ctx;
 }
 
-inline SSL *sslClientConnect(SSL_CTX *ctx, int sockfd)
+// hostName is the name the user connected to. Verifying the chain alone only proves the peer holds a
+// trusted certificate, so also require that the certificate is valid for that name (or IP address).
+inline SSL *sslClientConnect(SSL_CTX *ctx, int sockfd, const char *hostName)
 {
     SSL *ssl = SSL_new(ctx);
     if (!ssl)
@@ -105,10 +109,20 @@ inline SSL *sslClientConnect(SSL_CTX *ctx, int sockfd)
         cerr << "SSL_new" << endl;
         return nullptr;
     }
+    unsigned char addr[sizeof(struct in6_addr)];
+    bool isIp = inet_pton(AF_INET, hostName, addr) == 1 || inet_pton(AF_INET6, hostName, addr) == 1;
+    if (isIp ? X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), hostName) != 1
+             : SSL_set1_host(ssl, hostName) != 1)
+    {
+        cerr << "Could not set the expected server name " << hostName << endl;
+        SSL_free(ssl);
+        return nullptr;
+    }
     SSL_set_fd(ssl, sockfd);
     if (SSL_connect(ssl) <= 0)
     {
         cerr << "SSL_accept (handshake failed)" << endl;
+        ERR_print_errors_fp(stderr);
         SSL_free(ssl);
         return nullptr;
     }
