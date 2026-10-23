@@ -41,6 +41,13 @@ static int secondsFromEnv(const char *name, int fallback)
     return (value && atoi(value) > 0) ? atoi(value) : fallback;
 }
 
+// A failed reply (client already gone) is logged; the next recv() then reaps the client.
+static void sendReply(int fd, const char *text)
+{
+    if (send(fd, text, strlen(text), 0) < 0)
+        perror("send() to control client failed");
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
@@ -89,7 +96,7 @@ int main(int argc, char **argv)
             if (strcmp(buffer, "create") == 0 && IPV6_GROUP_BASE_PORT + nextGroupNo * 2 > 65535)
             {
                 const char *msg = "ERROR Too many groups";
-                send(clientfd, msg, strlen(msg), 0);
+                sendReply(clientfd, msg);
             }
             else if (strcmp(buffer, "create") == 0)
             {
@@ -105,7 +112,7 @@ int main(int argc, char **argv)
                 nextGroupNo++;
                 char response[BUFSIZE];
                 snprintf(response, BUFSIZE, "CREATED %d %d %d", groupNo, groupPort, ipv6Port);
-                send(clientfd, response, strlen(response), 0);
+                sendReply(clientfd, response);
             }
             else if (strncmp(buffer, "join ", 5) == 0)
             {
@@ -113,20 +120,20 @@ int main(int argc, char **argv)
                 if (sscanf(buffer, "join %d", &groupNo) != 1)
                 {
                     const char *msg = "ERROR Invalid join command";
-                    send(clientfd, msg, strlen(msg), 0);
+                    sendReply(clientfd, msg);
                     return;
                 }
                 if (groupNo < 1 || groupNo >= nextGroupNo)
                 {
                     const char *msg = "ERROR Group not created";
-                    send(clientfd, msg, strlen(msg), 0);
+                    sendReply(clientfd, msg);
                     return;
                 }
                 Group &g = groups[groupNo - 1];
                 int ipv6Port = IPV6_GROUP_BASE_PORT + groupNo * 2;
                 char response[BUFSIZE];
                 snprintf(response, BUFSIZE, "JOINED %d %d %d", g.groupNo, g.port, ipv6Port);
-                send(clientfd, response, strlen(response), 0);
+                sendReply(clientfd, response);
             }
             else if (strncmp(buffer, "leave ", 6) == 0)
             {
@@ -134,22 +141,22 @@ int main(int argc, char **argv)
                 if (sscanf(buffer, "leave %d", &groupNo) != 1)
                 {
                     const char *msg = "ERROR Invalid leave command";
-                    send(clientfd, msg, strlen(msg), 0);
+                    sendReply(clientfd, msg);
                     return;
                 }
                 if (groupNo < 1 || groupNo >= nextGroupNo)
                 {
                     const char *msg = "ERROR Group not created";
-                    send(clientfd, msg, strlen(msg), 0);
+                    sendReply(clientfd, msg);
                     return;
                 }
                 const char *msg = "LEFT";
-                send(clientfd, msg, strlen(msg), 0);
+                sendReply(clientfd, msg);
             }
             else
             {
                 const char *msg = "ERROR Unknown command";
-                send(clientfd, msg, strlen(msg), 0);
+                sendReply(clientfd, msg);
             }
         };
         while (true)

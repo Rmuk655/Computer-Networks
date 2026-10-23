@@ -263,7 +263,7 @@ int main(int argc, char **argv)
                     if (received <= 0)
                     {
                         cerr << "Group control server disconnected" << endl;
-                        continue;
+                        break;
                     }
                     buffer[received] = '\0';
                     int groupNo;
@@ -307,7 +307,11 @@ int main(int argc, char **argv)
                         cout << "Already joined group " << groupNo << endl;
                         continue;
                     }
-                    sendCommand(controlSock, buffer);
+                    if (sendCommand(controlSock, buffer) < 0)
+                    {
+                        perror("send() to control server failed");
+                        continue;
+                    }
                     char response[BUFSIZE];
                     int r_size = recv(controlSock, response, BUFSIZE - 1, 0);
                     if (r_size <= 0)
@@ -408,7 +412,11 @@ int main(int argc, char **argv)
                         cout << "Not joined to group " << groupNo << endl;
                         continue;
                     }
-                    sendCommand(controlSock, buffer);
+                    if (sendCommand(controlSock, buffer) < 0)
+                    {
+                        perror("send() to control server failed");
+                        continue;
+                    }
                     char response[BUFSIZE];
                     int r_size = recv(controlSock, response, BUFSIZE - 1, 0);
                     if (r_size <= 0)
@@ -473,6 +481,7 @@ int main(int argc, char **argv)
                 g.joined = false;
             }
         }
+        close(controlSock);
         return 0;
     }
     else if (port == 12347)
@@ -557,7 +566,11 @@ int main(int argc, char **argv)
                     break;
                 if (strcmp(buffer, "create") == 0)
                 {
-                    sendCommand(controlSock, buffer);
+                    if (sendCommand(controlSock, buffer) < 0)
+                    {
+                        perror("send() to control server failed");
+                        continue;
+                    }
                     char response[BUFSIZE];
                     ssize_t r_size = recv(controlSock, response, BUFSIZE - 1, 0);
                     if (r_size <= 0)

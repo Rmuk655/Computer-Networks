@@ -155,6 +155,23 @@ class ControlFramingTests(MessagingTestCase):
             sock.sendall(b"create\n")
             self.assertIn(b"CREATED", self.read_until(sock, b"CREATED", 1))
 
+    def test_client_stops_when_the_control_server_goes_away(self):
+        server = self.start_server(CONTROL_PORT)
+        client = subprocess.Popen([os.path.join(self.bin_dir, "client"), "localhost", "12346"],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  cwd=self.work_dir)
+        self.procs.append(client)
+        time.sleep(1)
+        server.kill()
+        server.wait()
+        try:
+            _, err = client.communicate(b"create\ncreate\ncreate\nquit\n", timeout=8)
+        except subprocess.TimeoutExpired:
+            self.fail("client did not exit after the server went away")
+        # One failure report, then the session ends; it must not keep retrying on the dead connection.
+        failures = err.count(b"disconnected") + err.count(b"send() to control server failed")
+        self.assertEqual(failures, 1, err.decode())
+
     def test_the_client_still_creates_and_joins_a_group(self):
         self.start_server(CONTROL_PORT)
         result = self.run_client("localhost", 12346, "create\njoin 1\nquit\n")
