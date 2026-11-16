@@ -1,0 +1,11 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Messaging system tests
+        run: python3 -m unittest -v messaging-system/tests/test_messaging.py

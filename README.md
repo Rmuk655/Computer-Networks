@@ -3,8 +3,6 @@
 Hands-on networking work in one place: a virtual routing lab built from Linux VMs and VyOS routers, and a
 socket-based group messaging system in C++. The larger load-balancing project lives in its own repository.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
 | Part | What it is | Highlights |
 |---|---|---|
 | [`routing-lab/`](routing-lab) | Two Ubuntu hosts and two VyOS routers on Linux bridges under QEMU/KVM, with static routing for IPv4 and IPv6 | 3-hop path, dual-stack ping and traceroute, iperf throughput, router and host configs |
@@ -38,6 +36,12 @@ connections and reports receive and send timestamps and timings. See
 cd messaging-system
 g++ -std=c++17 -Wall -Wextra -O2 server.cpp -o server -lssl -lcrypto -pthread
 g++ -std=c++17 -Wall -Wextra -O2 client.cpp -o client -lssl -lcrypto -pthread
+```
+
+Regression tests (needs g++, OpenSSL headers and the `openssl` CLI), from the repository root:
+
+```bash
+python3 -m unittest -v messaging-system/tests/test_messaging.py
 ```
 
 ## License
