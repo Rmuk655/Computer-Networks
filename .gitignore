@@ -7,3 +7,9 @@ server.key
 .vscode/
 .idea/
 
+
+# Local tool and editor state
+.claude/
+.graphify/
+graphify-out/
+.tools/
